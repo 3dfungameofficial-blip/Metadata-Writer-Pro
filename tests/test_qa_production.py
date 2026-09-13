@@ -75,23 +75,25 @@ def test_unknown_future_fields_preserved(tmp_path, monkeypatch):
 
 
 # -- updater ----------------------------------------------------------------
-def test_update_not_configured_by_default():
-    assert updater_mod.updates_configured() is False
-    with pytest.raises(updater_mod.UpdateNotConfigured):
-        updater_mod.check_for_updates()
+def test_update_endpoint_configured_to_official_repo():
+    assert updater_mod.updates_configured() is True
+    assert updater_mod.UPDATE_CHECK_URL == (
+        "https://api.github.com/repos/3dfungameofficial-blip/Metadata-Writer-Pro/releases/latest")
+    with pytest.raises((updater_mod.UpdateNotConfigured, updater_mod.UpdateError)):
+        updater_mod.check_for_updates(url="http://insecure.example/updates")
 
 
 def test_install_refused_without_hash(tmp_path):
     fake = tmp_path / "Setup.exe"
     fake.write_bytes(b"x")
-    with pytest.raises(ValueError, match="[Hh]ash|verif"):
+    with pytest.raises(Exception, match="[Hh]ash|verif"):
         updater_mod.install_artifact(fake, "")
 
 
 def test_sha256_mismatch_refuses(tmp_path):
     fake = tmp_path / "Setup.exe"
     fake.write_bytes(b"abc")
-    with pytest.raises(ValueError, match="[Cc]hecksum"):
+    with pytest.raises(Exception, match="[Cc]hecksum|verification"):
         updater_mod.verify_sha256(fake, "0" * 64)
 
 

@@ -1,0 +1,97 @@
+# Production release pipeline: tag -> test -> build -> sign -> installer -> GitHub Release.
+#
+# Trigger: push a version tag, e.g. v1.0.1
+#   git tag v1.0.1; git push origin v1.0.1
+#
+# The workflow FAILS CLOSED: any failed step stops the release, and signing
+# secrets are mandatory (unsigned binaries are never published as releases).
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   WIN_SIGN_PFX_B64   base64 of a publicly-trusted Authenticode .pfx
+#   WIN_SIGN_PASSWORD  password for the .pfx
+# Optional: EXPECTED_PUBLISHER (defaults to "Metadata Writer Pro").
+#
+# Alternative: Microsoft Trusted Signing — replace the sign steps with the
+# Trusted Signing action and keep every verify/gate step unchanged.
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write  # least privilege for creating releases + uploading assets
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      EXPECTED_PUBLISHER: Metadata Writer Pro
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version consistency (tag == app == installer)
+        shell: pwsh
+        run: python tools/check_version.py "${{ github.ref_name }}"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Run tests (fail closed)
+        run: python -m pytest tests -q
+
+      - name: Build EXE
+        run: python -m PyInstaller MetadataWriterPro.spec --noconfirm
+
+      - name: Packaged self-test (fail closed)
+        run: |
+          .\dist\MetadataWriterPro.exe --self-test selftest.json
+          python -c "import json,sys; r=json.load(open('selftest.json')); print(r['checks']); sys.exit(0 if r['ok'] else 1)"
+
+      - name: Sign EXE (fail closed — no silent unsigned builds)
+        env:
+          WIN_SIGN_PFX_B64: ${{ secrets.WIN_SIGN_PFX_B64 }}
+          WIN_SIGN_PASSWORD: ${{ secrets.WIN_SIGN_PASSWORD }}
+        run: python tools/sign.py sign dist\MetadataWriterPro.exe
+
+      - name: Verify EXE signature (fail closed)
+        run: python tools/sign.py verify dist\MetadataWriterPro.exe
+
+      - name: Build installer (Inno Setup is preinstalled on windows runners)
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y; $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc installer\setup.iss
+
+      - name: Sign installer (fail closed)
+        env:
+          WIN_SIGN_PFX_B64: ${{ secrets.WIN_SIGN_PFX_B64 }}
+          WIN_SIGN_PASSWORD: ${{ secrets.WIN_SIGN_PASSWORD }}
+        run: python tools/sign.py sign MetadataWriterPro-Setup.exe
+
+      - name: Verify installer signature (fail closed)
+        run: python tools/sign.py verify MetadataWriterPro-Setup.exe
+
+      - name: Generate SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash MetadataWriterPro-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  MetadataWriterPro-Setup.exe" | Out-File -Encoding ascii SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            MetadataWriterPro-Setup.exe
+            SHA256SUMS.txt
+          generate_release_notes: true

@@ -82,17 +82,54 @@ optional desktop icon, uninstaller, stable AppId for clean upgrades).
 `%APPDATA%\Metadata Writer Pro` (settings, history, logs, backups) is left untouched
 by install AND uninstall.
 
+## Installation (official releases only)
+
+Download `MetadataWriterPro-Setup.exe` and `SHA256SUMS.txt` from the official
+GitHub Releases page:
+
+`https://github.com/3dfungameofficial-blip/Metadata-Writer-Pro/releases`
+
+Optional manual verification (PowerShell):
+
+```powershell
+$h = (Get-FileHash MetadataWriterPro-Setup.exe -Algorithm SHA256).Hash.ToLower()
+Select-String SHA256SUMS.txt -Pattern $h
+```
+
+Run the installer (per-user, no admin rights needed, no Python/FFmpeg required).
+User data in `%APPDATA%\Metadata Writer Pro` survives upgrades and uninstalls.
+
 ## Updates
 
-`About → Check for Updates` (or silent auto-check) queries the releases endpoint,
-compares semantic versions, shows release notes, and (on user confirmation) downloads
-the new Setup.exe, verifies SHA-256, then launches it. Without a trusted hash,
-installation is **refused** with a clear error. No downloaded code is ever executed.
+`About → Check for Updates` (or the silent auto-check) queries the official
+releases API, compares semantic versions, shows release notes, then — only on
+your confirmation — downloads the installer with live progress, verifies its
+SHA-256 against the release's `SHA256SUMS.txt`, verifies its Authenticode
+signature, and only then launches it. If the app is offline, or the check
+fails, everything keeps working; you'll just see a friendly message.
 
-Endpoint is **not configured** in this build (`UPDATE_CHECK_URL = ""` in
-`metadata_writer_pro/app/__init__.py`) — the UI says so instead of pointing at a
-fake repository. Publisher: set it to your real releases API, e.g.
-`https://api.github.com/repos/YOUR_USERNAME/YOUR_REPO/releases/latest`.
+## Security
+
+- **Official source only**: updates come exclusively from this repository's
+  GitHub Releases over HTTPS; the updater only trusts the expected installer
+  filename, never arbitrary URLs, mirrors, or redirects.
+- **SHA-256 verification**: every release ships `SHA256SUMS.txt`; a hash
+  mismatch deletes the download and refuses installation — tested by an
+  automated mismatch test.
+- **Authenticode gate**: release binaries are SHA-256 timestamp-signed; the
+  updater refuses unsigned or invalidly signed installers (verified by
+  `tools/sign.py verify`, used by CI and the app).
+- **No code execution from downloads**: installers are launched via the OS
+  after verification; metadata/CSV content is never executed (`shell=False`
+  everywhere, no `eval`/`pickle`).
+
+## Windows SmartScreen
+
+Release binaries are Authenticode-signed with a trusted certificate and an
+RFC 3161 timestamp. Even so, newly released software can initially show a
+SmartScreen reputation warning — reputation is controlled by Microsoft and
+builds over time with consistent publisher identity, stable assets, and
+legitimate distribution. No software can guarantee zero warnings on day one.
 
 ## Architecture
 

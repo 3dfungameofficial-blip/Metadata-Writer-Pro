@@ -14,6 +14,10 @@ env/
 dist/
 build/
 *.spec.bak
+# Release artifacts live on GitHub Releases, never in source control
+MetadataWriterPro-Setup*.exe
+SHA256SUMS.txt
+selftest.json
 
 # Signing material — NEVER commit private keys or certificates
 *.pfx

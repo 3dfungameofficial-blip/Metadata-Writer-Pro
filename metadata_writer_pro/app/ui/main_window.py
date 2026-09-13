@@ -446,6 +446,16 @@ class MainWindow:
             elapsed = payload.elapsed
             self.status_var.set(f"Processing {min(payload.done + 1, payload.total)} of {payload.total} — {payload.current_file}")
             self.counts_var.set(f"✓ {payload.successful} successful    ✕ {payload.failed} failed    ⏱ {elapsed:.0f}s")
+        elif kind == "update-progress":
+            done, total = payload
+            if total:
+                pct = done * 100 // total
+                self.update_var.set(f"Downloading update… {pct}% ({done // 1024} KB)")
+            else:
+                self.update_var.set(f"Downloading update… ({done // 1024} KB)")
+        elif kind == "update-done":
+            self.update_var.set(str(payload))
+            self.install_update_btn.configure(state="disabled")
         elif kind == "finished":
             results: list[FileResult] = payload["results"]
             ok = sum(1 for r in results if r.status == "success")
@@ -564,14 +574,18 @@ class MainWindow:
             return
         if info is None:
             self.update_var.set(f"✓ You're using the latest version (v{APP_VERSION}).")
+        elif not info.installer_url:
+            self.update_var.set(f"Version {info.version} was found, but it has no Windows "
+                                f"installer asset. Please download it manually from the releases page.")
         else:
             self._pending_release = info
             notes = (info.notes or "").strip()[:600]
+            hash_note = ("SHA-256 verified." if info.sha256
+                         else "No trusted checksum published — automatic install will be refused.")
             self.update_var.set(f"Version {info.version} available.\n\nWhat's new:\n{notes}\n\n"
-                                f"Download: {info.download_url or 'see publisher website'}\n\n"
+                                f"{hash_note}\n\n"
                                 "Updates are installed via versioned Setup.exe releases — never auto-executed code.")
-            if info.download_url:
-                self.install_update_btn.configure(state="normal")
+            self.install_update_btn.configure(state="normal")
 
     def _download_and_install_update(self) -> None:
         info = self._pending_release
@@ -589,12 +603,16 @@ class MainWindow:
         try:
             import tempfile as _tf
             dest = Path(_tf.gettempdir()) / f"MetadataWriterPro-Setup-{info.version}.exe"
-            updater_svc.download_update(info, dest)
+
+            def _progress(done: int, total: int | None) -> None:
+                self.events.put(("update-progress", (done, total)))
+
+            updater_svc.download_update(info, dest, progress=_progress)
             updater_svc.install_artifact(dest, info.sha256)
-            self.update_var.set("Update verified and launched. Follow the installer, then restart the app.")
+            self.events.put(("update-done", "Update verified and launched. Follow the installer, then restart the app."))
         except Exception as exc:
             log.warning("Update install failed: %s", exc)
-            self.update_var.set(f"Update could not be installed safely:\n{exc}")
+            self.events.put(("update-done", f"Update could not be installed safely:\n{exc}"))
 
     def _try_enable_dnd(self) -> None:
         """Optional drag-and-drop; stability first — silently skip if unavailable."""

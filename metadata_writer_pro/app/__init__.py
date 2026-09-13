@@ -3,13 +3,19 @@
 APP_NAME = "Metadata Writer Pro"
 APP_VERSION = "1.0.0"
 APP_PUBLISHER = "Metadata Writer Pro"
-APP_URL = ""
+APP_URL = "https://github.com/3dfungameofficial-blip/Metadata-Writer-Pro"
 
-# Update server endpoint (GitHub Releases API style JSON). Empty means
-# updates are NOT configured for this build — the UI will say so instead
-# of inventing a repository. Publisher: set this to your real endpoint,
-# e.g. "https://api.github.com/repos/YOUR_USERNAME/YOUR_REPO/releases/latest"
-UPDATE_CHECK_URL = ""
+# ---- Official update source (single source of truth; HTTPS only) ----
+GITHUB_OWNER = "3dfungameofficial-blip"
+GITHUB_REPO = "Metadata-Writer-Pro"
+UPDATE_CHECK_URL = (
+    f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+)
+# Exact installer asset name published by the release workflow. The updater
+# only trusts this filename (or the versioned variant below) from the
+# official release — never arbitrary URLs.
+EXPECTED_INSTALLER_ASSET = "MetadataWriterPro-Setup.exe"
+CHECKSUMS_ASSET = "SHA256SUMS.txt"
 
 SETTINGS_SCHEMA_VERSION = 2
 
