@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metadata-writer-pro"
+version = "1.0.0"
+description = "Metadata Writer Pro — batch image/video metadata editor for Windows"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "ttkbootstrap>=8.1.0",
+  "pandas>=2.0.0",
+  "pyexiv2>=2.12.0",
+  "imageio-ffmpeg>=0.5.0",
+  "darkdetect>=0.8.0",
+]
+
+[project.scripts]
+metadata-writer-pro = "metadata_writer_pro.app.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
