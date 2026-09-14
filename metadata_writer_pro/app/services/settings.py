@@ -14,7 +14,7 @@ log = get_logger("settings")
 
 DEFAULTS = {
     "settings_version": SETTINGS_SCHEMA_VERSION,
-    "theme": "system",  # system | light | dark
+    "theme": "dark",  # system | light | dark (fresh installs start dark)
     "language": "en",
     "rename_enabled": True,
     "create_backup": False,

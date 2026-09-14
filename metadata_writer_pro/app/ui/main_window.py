@@ -62,6 +62,10 @@ class MainWindow:
         root.title(f"{APP_NAME} v{APP_VERSION}")
         root.geometry("1080x720")
         root.minsize(960, 640)
+        # Deferred + retried: DWM only honors the attribute once the window is
+        # mapped, and frozen/cold starts map later than source runs. Idempotent.
+        for delay in (300, 1200, 3000, 8000):
+            root.after(delay, lambda: self._enable_dark_titlebar(root))
         try:
             icon = paths_mod.resource_path("assets/icon.ico")
             if icon.is_file():
@@ -78,6 +82,20 @@ class MainWindow:
         # Auto update check (non-blocking, silent on failure)
         if self.settings.get("auto_check_updates", True):
             threading.Thread(target=self._silent_update_check, daemon=True).start()
+
+    @staticmethod
+    def _enable_dark_titlebar(root: ttk.Window) -> None:
+        """Dark Windows title bar via documented DWM API (cosmetic only)."""
+        try:
+            import ctypes
+
+            # Tk top-levels are wrapped: the outer frame owns the title bar.
+            hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+            value = ctypes.c_int(1)
+            # 20 = DWMWA_USE_IMMERSIVE_DARK_MODE (Win 10 20H1+); ignore failures.
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(value), 4)
+        except Exception as exc:
+            log.debug("dark titlebar skipped: %s", exc)
 
     # -- layout ----------------------------------------------------------
     def _build_layout(self) -> None:
@@ -101,6 +119,8 @@ class MainWindow:
 
         ttk.Label(self.sidebar, text=supported_label(), font=("Segoe UI", 8),
                   wraplength=170, justify="left").pack(side="bottom", anchor="w", pady=6)
+
+        ttk.Separator(self.shell, orient="vertical").pack(side="left", fill="y")
 
         # Content
         self.content = ttk.Frame(self.shell, padding=18)
@@ -237,8 +257,8 @@ class MainWindow:
 
         logrow = ttk.Frame(prog)
         logrow.pack(fill=BOTH, expand=True, pady=(6, 0))
-        from ttkbootstrap.scrolled import ScrolledText
-        self.log_box = ScrolledText(logrow, height=6, wrap=WORD, font=("Consolas", 9))
+        # ttkbootstrap 2.x API (ttkbootstrap.scrolled was removed).
+        self.log_box = ttk.ScrolledText(logrow, height=6, wrap=WORD, font=("Consolas", 9))
         self.log_box.pack(fill=BOTH, expand=True)
         self.log_box.text.config(state="disabled")
         logbtns = ttk.Frame(prog)
@@ -534,6 +554,43 @@ class MainWindow:
             self.root.style.theme_use(DARK_THEME if is_dark else LIGHT_THEME)
         except Exception:
             pass
+        self._style_widgets(is_dark)
+
+    def _style_widgets(self, is_dark: bool) -> None:
+        """Mode-aware polish for widgets ttkbootstrap themes leave native.
+
+        The log Text widget and table row metrics are the difference between
+        'default theme' and an intentionally designed dark UI. All colors are
+        restrained neutrals with a single blue accent.
+        """
+        try:
+            style = self.root.style
+            style.configure("Treeview", font=("Segoe UI", 9), rowheight=26)
+            style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
+            style.configure("TCombobox", font=("Segoe UI", 9))
+            style.configure("TButton", font=("Segoe UI", 9))
+        except Exception as exc:
+            log.debug("style configure skipped: %s", exc)
+        log_box = getattr(self, "log_box", None)
+        if log_box is None:
+            return
+        if is_dark:
+            colors = {"bg": "#1b1e24", "fg": "#d7dce2", "insert": "#d7dce2",
+                      "select": "#35549e", "border": "#3a3f47"}
+        else:
+            colors = {"bg": "#ffffff", "fg": "#212121", "insert": "#212121",
+                      "select": "#4f7cff", "border": "#c9ced6"}
+        try:
+            log_box.text.config(
+                bg=colors["bg"], fg=colors["fg"],
+                insertbackground=colors["insert"],
+                selectbackground=colors["select"], selectforeground="#ffffff",
+                relief="flat", borderwidth=0, highlightthickness=1,
+                highlightbackground=colors["border"], highlightcolor=colors["border"],
+                padx=10, pady=10, spacing1=2, font=("Consolas", 9),
+            )
+        except Exception as exc:
+            log.debug("log styling skipped: %s", exc)
 
     def _save_theme(self) -> None:
         update_and_save(theme=self.theme_var.get())
