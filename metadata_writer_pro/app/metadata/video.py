@@ -1,9 +1,18 @@
 """Video metadata writer (MP4/MOV) via FFmpeg container remux (no re-encode).
 
+Stock-asset scope: writes ONLY Title, Description (+Comment mirror) and
+Keywords. Author/Artist/Copyright are deliberately NEVER written to video
+assets. Rating is NOT written: FFmpeg 7.x/8.x silently drops every rating
+representation tried (rating, rate, stars, score, XMP:Rating, Rating,
+shareduserrating, userrating) for both MP4 and MOV, and pyexiv2 video writes
+are silent no-ops — so no rating is faked. (Independently verified: ExifTool
+13.59 CAN store XMP:Rating=5 in both containers, but that requires bundling
+a second mutation tool; see README "Known limitations".)
+
 Strategy:
   ffmpeg -i input -map 0 -c copy -map_metadata 0
          -metadata title=... -metadata description=... -metadata comment=...
-         -metadata keywords=... [-metadata author/artist copyright]
+         -metadata keywords=...
          [-movflags +faststart for MP4] output_tmp
 
 Streams are copied (codec/resolution/fps/duration preserved). The temp
@@ -12,13 +21,12 @@ failed FFmpeg run, a failed probe, or a crash before replacement always
 leaves the original intact. Temp files use a distinctive ``_mwptmp_``
 infix and are deleted on failure; stale ones are swept at batch start.
 
-Container support (verified against ffmpeg 7.x ``-i`` tag dumps):
-  MP4: title, description (+comment mirror), keywords, author/artist,
-       copyright — all round-trip.
-  MOV (QuickTime udta): title, author/artist, description (stored as
-       ``comment``), copyright. The MOV muxer silently drops the
-       ``description`` and ``keywords`` keys, so keywords are unsupported
-       on MOV and ``verify()`` does not require them there.
+Container support (verified with ffprobe 8.0 + ExifTool 13.59 tag dumps):
+  MP4: title, description (+comment mirror), keywords (as QuickTime:Keyword)
+       — all round-trip.
+  MOV (QuickTime udta): title, description (as comment + UserData_des),
+       keywords best-effort (as raw UserData_key, not mapped to standard
+       Keywords). ``verify()`` enforces exactly this subset.
 """
 from __future__ import annotations
 
@@ -42,9 +50,10 @@ _TAG_LINE = re.compile(r"(?m)^\s+([A-Za-z][\w\-]*)\s*:\s*(.+?)\s*$")
 
 def _run(cmd: list[str], timeout: int = 300) -> subprocess.CompletedProcess:
     # Never shell=True: metadata text is untrusted input.
-    # errors="replace": ffmpeg stderr may contain non-locale bytes (e.g. CJK/Bengali tags).
-    return subprocess.run(cmd, capture_output=True, text=True, errors="replace",
-                          timeout=timeout, check=False)
+    # Decode as UTF-8 explicitly: text=True would use the Windows locale
+    # codec (cp1252) and corrupt/mangle non-Latin tags such as Bengali.
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=timeout, check=False)
 
 
 class VideoMetadataProcessor(MetadataProcessor):
@@ -75,8 +84,12 @@ class VideoMetadataProcessor(MetadataProcessor):
 
     def _desired_fields(self, metadata: MetadataModel, existing: dict[str, str],
                         overwrite: bool) -> list[tuple[str, str]]:
-        """Fields we control. Empty values never erase existing tags; with
-        overwrite=False, non-empty existing tags are left untouched."""
+        """Stock fields only: title, description/comment mirror, keywords.
+
+        Author/Artist/Copyright are never written to video assets, and no
+        rating key is emitted (FFmpeg drops all of them — see module docs).
+        Empty values never erase existing tags; with overwrite=False,
+        non-empty existing tags are left untouched."""
         keywords = ", ".join(metadata.keywords or [])
         description = metadata.description or metadata.title or ""
         candidates: list[tuple[str, str]] = []
@@ -88,11 +101,6 @@ class VideoMetadataProcessor(MetadataProcessor):
             candidates.append(("comment", description))
         if keywords:
             candidates.append(("keywords", keywords))
-        if metadata.author:
-            candidates.append(("author", metadata.author))
-            candidates.append(("artist", metadata.author))
-        if metadata.copyright:
-            candidates.append(("copyright", metadata.copyright))
         if overwrite:
             return [(k, v) for k, v in candidates if v]
         kept = []
@@ -195,17 +203,14 @@ class VideoMetadataProcessor(MetadataProcessor):
         if metadata.keywords and suffix == ".mp4":
             if tags.get("keywords", "") != ", ".join(metadata.keywords):
                 return False
-        # keywords on MOV are unsupported by the container — not required.
-        if metadata.author and tags.get("author", "") != metadata.author \
-                and tags.get("artist", "") != metadata.author:
-            return False
-        if metadata.copyright and tags.get("copyright", "") != metadata.copyright:
-            return False
+        # keywords on MOV are container-dependent (raw UserData_key) — not required.
+        # Author/Artist/Copyright are never written to video — never required.
+        # Rating is never written by this toolchain — never required, never claimed.
         return True
 
     def unsupported_notes(self, file_path: Path, metadata: MetadataModel) -> list[str]:
         """Honest per-container limitation notes for logs/reports."""
         notes = []
         if Path(file_path).suffix.lower() == ".mov" and metadata.keywords:
-            notes.append("MOV container does not store keywords; title/description(author)/copyright applied.")
+            notes.append("MOV stores keywords as raw user data (container-dependent).")
         return notes

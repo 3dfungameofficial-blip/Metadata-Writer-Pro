@@ -99,3 +99,52 @@ def test_png_metadata_read_back(tmp_path):
     if isinstance(title, dict):
         title = next(iter(title.values()), "")
     assert title == "PNG Title"
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("ext", ["mp4", "mov"])
+def test_video_never_writes_author_artist_copyright(tmp_path, ext):
+    """Stock policy: even when the model carries them, video gets none."""
+    from metadata_writer_pro.app.metadata.video import VideoMetadataProcessor
+    p = tmp_path / f"t.{ext}"
+    _gen(p, ext)
+    proc = VideoMetadataProcessor()
+    proc.write_metadata(p, MetadataModel(title="T", description="D", keywords=["k"],
+                                         author="Some Author", copyright="2026 Someone"))
+    tags = proc.read_tags(p)
+    for banned in ("author", "artist", "creator", "copyright", "year"):
+        assert banned not in tags, f"{ext} leaked {banned}={tags.get(banned)!r}"
+    # ...and the stock fields still verify.
+    assert proc.verify(p, MetadataModel(title="T", description="D",
+                                        keywords=["k"] if ext == "mp4" else []))
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("ext", ["mp4", "mov"])
+def test_video_writes_no_fake_rating(tmp_path, ext):
+    """No rating representation is emitted (FFmpeg drops all of them)."""
+    from metadata_writer_pro.app.metadata.video import VideoMetadataProcessor
+    p = tmp_path / f"t.{ext}"
+    _gen(p, ext)
+    proc = VideoMetadataProcessor()
+    proc.write_metadata(p, MetadataModel(title="T", rating=5))
+    tags = proc.read_tags(p)
+    for key in ("rating", "rate", "stars", "score"):
+        assert key not in tags, f"{ext} contains unexpected {key}={tags.get(key)!r}"
+
+
+@needs_ffmpeg
+def test_video_bengali_unicode_roundtrip(tmp_path):
+    from metadata_writer_pro.app.metadata.video import VideoMetadataProcessor
+    p = tmp_path / "t.mp4"
+    _gen(p, "mp4")
+    m = MetadataModel(title="Beautiful Bangladesh Nature — বাংলা পরীক্ষা",
+                      description="A cinematic stock video. বাংলা ইউনিকোড পরীক্ষা।",
+                      keywords=["Bangladesh", "nature", "river", "বাংলা"])
+    proc = VideoMetadataProcessor()
+    proc.write_metadata(p, m)
+    assert proc.verify(p, m)
+    tags = proc.read_tags(p)
+    assert tags.get("title") == m.title
+    assert tags.get("description") == m.description
+    assert "বাংলা" in tags.get("keywords", "")

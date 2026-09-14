@@ -22,12 +22,18 @@ rename, backups, background processing, reports, and versioned updates.
 
 ## Supported formats
 
-| Format | Title | Description | Keywords | Author | Copyright | Notes |
-|--------|-------|-------------|----------|--------|-----------|-------|
-| JPG/JPEG | ✓ | ✓ | ✓ | — | — | XMP/IPTC/EXIF, rating 5 |
-| PNG | ✓ | ✓ | ✓ | — | — | Written correctly; Windows Explorer usually doesn't display PNG metadata |
-| MP4 | ✓ | ✓ (+comment mirror) | ✓ | ✓ (author+artist) | ✓ | Stream copy, faststart |
-| MOV | ✓ | ✓ (stored as `comment`) | ✕ container limitation | ✓ (artist) | ✓ | QuickTime udta drops `description`/`keywords` keys; app reports this in results |
+| Format | Title | Description | Keywords | Rating | Notes |
+|--------|-------|-------------|----------|--------|-------|
+| JPG/JPEG | ✓ | ✓ | ✓ | ★★★★★ | XMP/IPTC/EXIF |
+| PNG | ✓ | ✓ | ✓ | — | Written correctly; Windows Explorer usually doesn't display PNG metadata |
+| MP4 | ✓ | ✓ (+comment mirror) | ✓ | ✕ toolchain limitation | Stream copy, faststart. Author/Copyright never written (stock policy) |
+| MOV | ✓ | ✓ (stored as comment) | ~ container-dependent | ✕ toolchain limitation | QuickTime udta keeps keywords as raw user data, not standard Keywords |
+
+Video rating: the bundled FFmpeg (7.x; also tested 8.x) silently drops every
+rating representation for MP4/MOV, so the app writes no rating rather than a
+fake one. ExifTool 13.59 can store `XMP:Rating=5` in both containers
+(independently verified), but it is not bundled — see `VideoMetadataProcessor`
+docs. Author/Artist/Copyright are never written to video assets by design.
 
 New formats plug in via `MetadataProcessor.supports()` + `write_metadata()` in
 `metadata_writer_pro/app/metadata/` (see `base.py`).
@@ -156,7 +162,9 @@ metadata_writer_pro/app/
 ## Known limitations
 
 - PNG metadata is written correctly but Windows Explorer often doesn't display it
-- MOV cannot store `keywords` (QuickTime container limitation — reported per file, not silent)
+- MOV keywords land in raw QuickTime user data (readable, but not mapped to standard Keywords)
+- Video star ratings can't be written with the bundled FFmpeg (no fake rating is written)
+- Author/Copyright are never written to video assets (intentional stock-asset policy)
 - Cancel finishes the current file first (never interrupts a file mid-write)
 - Drag-and-drop needs optional `tkinterdnd2`, otherwise Browse buttons are used
 - Video write requires FFmpeg (bundled in the .exe; dev mode uses `imageio-ffmpeg` or system ffmpeg)
